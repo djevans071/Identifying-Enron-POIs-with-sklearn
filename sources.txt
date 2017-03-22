@@ -1,0 +1,16 @@
+- Starter code for final project: https://github.com/udacity/ud120-projects.git
+
+- Algorithm tuning: http://scikit-learn.org/stable/modules/grid_search.html
+
+- Algorithm tuning using GridSearch: http://scikit-learn.org/stable/auto_examples/model_selection/grid_search_digits.html
+
+- KNeighbors classifier: http://scikit-learn.org/stable/modules/generated/sklearn.neighbors.KNeighborsClassifier.html
+
+- ShuffleSplit: 
+http://scikit-learn.org/stable/modules/generated/sklearn.model_selection.ShuffleSplit.html
+
+- Cross-validation: http://scikit-learn.org/stable/modules/cross_validation.html
+
+- Recall and precision: https://en.wikipedia.org/wiki/Precision_and_recall
+
+
