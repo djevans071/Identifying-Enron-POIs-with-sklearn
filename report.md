@@ -129,7 +129,7 @@ features_list = ['poi','exercised_stock_options', 'bonus',
 I tried out four different classifiers: random forest (`RandomForestClassifier`), decision tree (`DecisionTreeClassifier`), k-nearest neighbors (`KNeighborsClassifier`), and naive Bayes (`GaussianNB`). I split the data into training and test sets using `train_test_split` and measured how long it took to fit the training data. Then I used `cross_val_score` to calculate an average accuracy score from 10 cross validation splits.  Here are the performance results:
 
 Algorithm | Fitting time (s) | Accuracy
-:---|---:|---:|---:
+:---|---:|---:
 Random Forest | 0.036 | 0.877
 Decision Tree | 0.001 | 0.800
 K-Nearest Neighbors | 0.000 | 0.882
