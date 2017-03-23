@@ -13,7 +13,7 @@ from tester import dump_classifier_and_data, test_classifier
 ### features_list is a list of strings, each of which is a feature name.
 ### The first feature must be "poi".
 features_list = ['poi','exercised_stock_options', 'bonus',
-                 'salary', 'deferred_income', 'feat_ratio']
+                 'salary']
 
 ### Load the dictionary containing the dataset
 with open("final_project_dataset.pkl", "r") as data_file:
@@ -58,18 +58,18 @@ for key, value in feature_types.items():
 import pandas as pd
 import seaborn as sns
 import matplotlib.pyplot as plt
-df = pd.DataFrame(data_dict).transpose()
+# df = pd.DataFrame(data_dict).transpose()
 # clean up dataframe by converting `NaN` to np.nan
-df = df.applymap(lambda x: np.nan if x == 'NaN' else x)
+# df = df.applymap(lambda x: np.nan if x == 'NaN' else x)
 # remove initial outliers from dataframe and make scatterplot
-df = df[~(df.index == 'TOTAL') & ~(df.index.str.startswith('THE '))]
+# df = df[~(df.index == 'TOTAL') & ~(df.index.str.startswith('THE '))]
 # sns.lmplot('bonus', 'exercised_stock_options',
 #            data = df, fit_reg = False)
 # plt.tight_layout()
 # plt.show()
 
 # detect outliers
-df2 = df[['bonus', 'exercised_stock_options', 'poi']]
+# df2 = df[['bonus', 'exercised_stock_options', 'poi']]
 # print df2[(df2.bonus > 4000000) & (df2.exercised_stock_options > 15000000)]
 
 # remove problematic outliers from data_dict
@@ -109,22 +109,23 @@ for feat in to_remove:
 # place poi at the front of the list
 all_features.insert(0, all_features.pop(all_features.index('poi')))
 
-
 ### Extract features and labels from dataset for local testing
-data = featureFormat(my_dataset, all_features)
-labels, features = targetFeatureSplit(data)
+def split_features(dataset, features_list):
+    data = featureFormat(dataset, features_list)
+    labels, features = targetFeatureSplit(data)
+    return labels, features
 
+labels, features = split_features(my_dataset, all_features)
 # http://scikit-learn.org/stable/auto_examples/feature_selection/plot_feature_selection.html#sphx-glr-auto-examples-feature-selection-plot-feature-selection-py
 from sklearn.feature_selection import SelectKBest, f_classif
-
-selector = SelectKBest(f_classif, k=6)
+selector = SelectKBest(f_classif)
 selector.fit(features,labels)
 
 scores = selector.scores_
 scores /= scores.max()
 
 # make bar plot of features and scores
-all_features.pop(0)
+# all_features.pop(0)
 # fselect_series = pd.Series(scores, index = all_features)
 # fselect_series = fselect_series.sort_values(ascending = False).plot.bar()
 # plt.xticks(rotation = 50, ha = 'right')
@@ -132,11 +133,72 @@ all_features.pop(0)
 # plt.tight_layout()
 # plt.show()
 
+from sklearn.model_selection import cross_val_score, StratifiedShuffleSplit
+from sklearn.neighbors import KNeighborsClassifier
+
+def kbest_score(scoring_type):
+    scores_array = []
+    for k in xrange(1, len(all_features)):
+        selector = SelectKBest(f_classif, k = k)
+        new_features = selector.fit_transform(features, labels)
+
+        clf = KNeighborsClassifier()
+        cv = StratifiedShuffleSplit(n_splits=100, test_size = 0.3,
+                                    random_state = 42)
+        eval_scores = cross_val_score(clf, new_features, labels,
+                                      cv = cv, scoring = scoring_type)
+        mean_score = np.mean(eval_scores)
+        scores_array.append(mean_score)
+    return scores_array
+
+# plot precision and recall scores vs. number of kbest features
+# p_scores = pd.Series(kbest_score('precision'), name = 'precision')
+# r_scores = pd.Series(kbest_score('recall'), name = 'recall')
+# pr_scores = pd.concat([p_scores, r_scores], axis = 1)
+# pr_scores.index = pr_scores.index + 1
+# pr_scores.plot.line()
+# plt.xlabel('Number of KBest Features')
+# plt.ylabel('Score')
+# plt.show()
+
+# see how performance is affected by adding feat_ratio
+labels_wo_fr, features_wo_fr = split_features(my_dataset, features_list)
+labels_w_fr, features_w_fr = split_features(my_dataset, features_list + ['feat_ratio'])
+
+def check_perf(labels, features):
+    clf = KNeighborsClassifier()
+    cv = StratifiedShuffleSplit(n_splits=100, test_size = 0.3,
+                                random_state = 42)
+
+    scoring_types = {'accuracy':None, 'precision':None, 'recall':None}
+
+    for scoring_type in scoring_types.keys():
+        eval_scores = cross_val_score(clf, features, labels,
+                                    cv = cv, scoring = scoring_type)
+        scoring_types[scoring_type] = round(np.mean(eval_scores), 3)
+
+    return scoring_types
+
+print '\n'
+print 'Performance without feat_ratio'
+pprint(check_perf(labels_wo_fr, features_wo_fr))
+print 'Performance with feat_ratio'
+pprint(check_perf(labels_w_fr, features_w_fr))
+print '\n'
+
 # transform the features variable to only contain the 6 highest scoring features
 # features = selector.transform(features)
 # OR manually select features and re-implement featureFormat and targetFeatureSplit
+features_list = features_list + ['feat_ratio']
 data = featureFormat(my_dataset, features_list)
 labels, features = targetFeatureSplit(data)
+
+# feature scaling
+# from sklearn.preprocessing import MinMaxScaler
+#
+# scaler = MinMaxScaler()
+# rescaled_features = scaler.fit_transform(features)
+
 
 # ----------------------------------------------------------
 
@@ -147,35 +209,46 @@ labels, features = targetFeatureSplit(data)
 ### http://scikit-learn.org/stable/modules/pipeline.html
 
 # Provided to give you a starting point. Try a variety of classifiers.
-from sklearn.model_selection import train_test_split, cross_val_score, ShuffleSplit
-features_train, features_test, labels_train, labels_test = \
-    train_test_split(features, labels, test_size=0.3, random_state=42)
+from sklearn.model_selection import train_test_split, StratifiedKFold
 from time import time
 
+from sklearn.naive_bayes import GaussianNB
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.tree import DecisionTreeClassifier
-from sklearn.naive_bayes import GaussianNB
-from sklearn.neighbors import KNeighborsClassifier
+
+features_train, features_test, labels_train, labels_test = \
+    train_test_split(features, labels, test_size=0.3, random_state=42)
 
 clf_dict = {"Random Forest": RandomForestClassifier(n_estimators = 10,
                                 min_samples_split=25,
                                 min_samples_leaf=1,
                                 criterion="entropy"),
             "Decision Tree": DecisionTreeClassifier(max_depth = 7,
-                                            max_features = 'sqrt',
-                                            min_samples_split = 4),
+                                max_features = 'sqrt',
+                                min_samples_split = 4),
             'Naive Bayes': GaussianNB(),
             'KNeighbors': KNeighborsClassifier()
-            }
+}
 
-for name, clf in clf_dict.items():
-    t0 = time()
-    clf.fit(features_train, labels_train)
-    print 'Fitting time: {} s'.format(round(time() - t0, 4))
-    cv = ShuffleSplit(n_splits=10, test_size=0.3, random_state=42)
-    scores = cross_val_score(clf, features, labels, cv = cv)
-    print "{} mean accuracy for 15 CVs: {} +/- {}".format(name, round(np.mean(scores), 3), round(np.std(scores), 3))
-    print '\n'
+def validate(features, labels):
+
+    for name, clf in clf_dict.items():
+        t0 = time()
+        clf.fit(features_train, labels_train)
+        print 'Fitting time: {} s'.format(round(time() - t0, 4))
+        cv = StratifiedKFold(n_splits = 10, random_state = 42)
+        scores = cross_val_score(clf, features, labels, cv = cv)
+
+        acc_stmt = "{} mean accuracy for 10 CVs: {} +/- {}"
+        mean_score = round(np.mean(scores), 3)
+        std_score = round(np.std(scores), 3)
+        print acc_stmt.format(name, mean_score, std_score)
+        print '\n'
+
+validate(features, labels)
+# print '\n'
+# print "Cross-validation for scaled features"
+# validate(rescaled_features, labels)
 
 # ------------------------------------------------------------
 
@@ -200,9 +273,8 @@ params = [{'weights': ['uniform'],
 kn_clf = GridSearchCV(clf_dict['KNeighbors'], params, cv = 10,
                         scoring = 'accuracy')
 kn_clf.fit(features_train, labels_train)
-print 'Best Parameters'
-print kn_clf.best_estimator_
-
+# print 'Best Parameters'
+# print kn_clf.best_estimator_
 kn_clf = kn_clf.best_estimator_
 
 # clf0 = clf_dict['KNeighbors']
@@ -212,8 +284,8 @@ kn_clf = kn_clf.best_estimator_
 # print '\n'
 
 # use test_classifier
-# nb_clf = clf_dict['Naive Bayes']
-# test_classifier(nb_clf, my_dataset, features_list)
+nb_clf = clf_dict['Naive Bayes']
+test_classifier(nb_clf, my_dataset, features_list)
 test_classifier(clf_dict['KNeighbors'], my_dataset, features_list)
 test_classifier(kn_clf, my_dataset, features_list)
 

@@ -6,8 +6,8 @@
 
 - KNeighbors classifier: http://scikit-learn.org/stable/modules/generated/sklearn.neighbors.KNeighborsClassifier.html
 
-- ShuffleSplit: 
-http://scikit-learn.org/stable/modules/generated/sklearn.model_selection.ShuffleSplit.html
+- StratifiedKFold: 
+http://scikit-learn.org/stable/modules/generated/sklearn.model_selection.StratifiedKFold.html
 
 - Cross-validation: http://scikit-learn.org/stable/modules/cross_validation.html
 

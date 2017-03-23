@@ -35,7 +35,7 @@ The dataset we are using is a dictionary of 146 individuals employed at Enron wi
 
 The second column in the table above contains the number of individuals for whom each feature is not missing (marked `'NaN'`) and the third column contains the number of POIs in the second column. I calculated these quantities in `poi_id.py` by creating the dictionaries `nonnull_features` and `nonnull_poi_features`. Every feature has missing values except `poi`. Of the 21 feature entries identified in this dataset, 19 of them are non-empty for POIs.  
 
-There are 18 POIs identified, and with the exception of `deferral_payments`, `director_fees`, `loan_advances`, and `restricted_stock_deferred`, more than half of the POIs have a given feature in their dictionary. Since the features named are those with very little information, we should not consider them as useful features for our analysis.
+There are 18 POIs identified, and with the exception of `deferral_payments`, `director_fees`, `loan_advances`, and `restricted_stock_deferred`, more than half of the POIs have a given feature in their dictionary. Since the features named are those with very little information, we should not consider them as useful features for our analysis. The fact that there are only 18 POIs out of 146 individuals will make it difficult to create an effective classification algorithm since it will have to predict very sparse positive hits in a sea of negative hits.
 
 Let's take a look at the relationship between `exercised_stock_options` and `bonus` to find some outliers in our data. I first converted the data dictionary into a pandas dataframe and cleaned up null values.
 ```python
@@ -68,7 +68,7 @@ name | bonus |  exercised_stock_options |  poi
 LAY KENNETH L       | 7000000  |  34348384 | True
 SKILLING JEFFREY K  | 5600000  |  19250000 | True
 
-These are definitely outliers to keep because Kenneth Lay and Jeffrey Skilling are the founder and CEO of Enron respectively. Incidentally, the person with the largest bonus is `LAVORATO JOHN J`, who is not a person of interest, but someone we should keep because he is a legitimate Enron employee.
+These are definitely outliers to *keep* because Kenneth Lay and Jeffrey Skilling are the founder and CEO of Enron respectively, hence Enron employees worth looking at. Incidentally, the person with the largest bonus is `LAVORATO JOHN J`, who is not a person of interest, but someone we should keep because he is a legitimate Enron employee. Although these data points may skew trends for predicting patterns, it will be a good idea to leave these outliers in the dataset.
 
 
 ## Question 2: Optimizing Feature Selection and Engineering
@@ -89,13 +89,13 @@ for name, feature_dict in data_dict.items():
         elif key == 'feat_ratio':
             num_nonnull += 0
 
-    # divide by number of features to calulate ratio
+    # divide by number of features to calculate ratio
     feature_dict['feat_ratio'] = num_nonnull/21.
 ```
 
-Now let us use a univariate feature selection algorithm to help us select the most salient features. For this project, I have opted to use `SelectKBest`, setting `k = 6` at first. This seems like a good number of features to start with to avoid high variance. Then I examined the scores I got for each of the features I've decided to keep so far.
+Now let us use a univariate feature selection algorithm to help us select the most salient features. For this project, I have opted to use `SelectKBest` and rank the features by score. This seems like a good number of features to start with to avoid high variance. Then I examined the scores I got for each of the features I've decided to keep so far.
 ```python
-selector = SelectKBest(f_classif, k=6)
+selector = SelectKBest(f_classif)
 selector.fit(features,labels)
 
 scores = selector.scores_
@@ -113,14 +113,59 @@ Here are the results ordered by highest relative F-score.
 
 ![](feature_select.png)
 
-The highest scoring features are `exercised_stock_options`, `total_stock_value`, `bonus`, `salary`, `deferred_income`, and `feat_ratio`. It turns out that `exercised_stock_options` and `total_stock_value` have a correlation coefficient of 0.964, so it would not be a good idea to include both in our final algorithm. So let us remove `total_stock_value`.
+The highest scoring features are `exercised_stock_options`, `total_stock_value`, `bonus`, and `salary`.  The plot shows a natural cutoff where the `SelectKBest` scores begin to drop.  But let us evaluate the precision and recall for each value of *k* in `SelectKBest` to find peaks. We use `cross_val_score` to calculate the relevant quantities using the naive Bayes classifier:
 
-Here is the feature list:
 ```python
-features_list = ['poi','exercised_stock_options', 'bonus',
-                 'salary', 'deferred_income', 'feat_ratio']
+from sklearn.model_selection import cross_val_score, StratifiedShuffleSplit
+from sklearn.neighbors import KNeighborsClassifier
+
+def kbest_score(scoring_type):
+    scores_array = []
+    for k in xrange(1, len(all_features)):
+        selector = SelectKBest(f_classif, k = k)
+        new_features = selector.fit_transform(features, labels)
+
+        clf = KNeighborsClassifier()
+        cv = StratifiedShuffleSplit(n_splits=100, test_size = 0.3,
+                                    random_state = 42)
+        eval_scores = cross_val_score(clf, new_features, labels,
+                                      cv = cv, scoring = scoring_type)
+        mean_score = np.mean(eval_scores)
+        scores_array.append(mean_score)
+    return scores_array
+
+# plot precision and recall scores vs. number of kbest features
+p_scores = pd.Series(kbest_score('precision'), name = 'precision')
+r_scores = pd.Series(kbest_score('recall'), name = 'recall')
+pr_scores = pd.concat([p_scores, r_scores], axis = 1)
+pr_scores.index = pr_scores.index + 1
+pr_scores.plot.line()
+plt.xlabel('Number of KBest Features')
+plt.ylabel('Score')
+plt.show()
 ```
 
+![](feature_select2.png)
+
+In the resultant plot, we see that there is a peak at `k = 4` for both evaluation metrics. This corresponds well with the drop-off in `SelectKBest` scores after the fourth feature.
+
+In addition, it turns out that `exercised_stock_options` and `total_stock_value` have a correlation coefficient of 0.964, so it would not be a good idea to include both in our final algorithm. So let us remove `total_stock_value`.
+
+Now let us test how our new feature `feat_ratio` affects performance. I first calculated the accuracy, precision, and recall using only the features in `features_list` and then I did the same by adding `feat_ratio` to the features list.
+Here are the results:
+
+Metric | without `feat_ratio` | with `feat_ratio`
+:--- | ---: | ---:
+accuracy | 0.868 | 0.903
+precision | 0.656 | 0.754
+recall | 0.283 | 0.343
+
+So adding `feat_ratio` does improve performance for each of the metrics tested. Here is the final feature list:
+
+```python
+features_list = ['poi','exercised_stock_options',
+                 'bonus', 'salary', 'feat_ratio']
+```
 
 ## Question 3: Picking an Algorithm
 
@@ -130,10 +175,10 @@ I tried out four different classifiers: random forest (`RandomForestClassifier`)
 
 Algorithm | Fitting time (s) | Accuracy
 :---|---:|---:
-Random Forest | 0.036 | 0.877
-Decision Tree | 0.001 | 0.800
-K-Nearest Neighbors | 0.000 | 0.882
-Naive Bayes | 0.001 | 0.875
+Random Forest | 0.037 | 0.861
+Decision Tree | 0.000 | 0.842
+K-Nearest Neighbors | 0.000 | 0.902
+Naive Bayes | 0.001 | 0.866
 
 So it looks like the random forest algorithm took the longest to fit, while the other three had substantially better performance. My final selection, `KNeighborsClassifier`, turns out to be the most accurate.
 
@@ -144,15 +189,15 @@ So it looks like the random forest algorithm took the longest to fit, while the 
 
 We tune the parameters of an algorithm so that we can find what parameters will optimize algorithm performance. If we do not do this well, our algorithm will not be as accurate as it could be had we used other parameter values.
 
-But there are some algorithms, like `GaussianNB`, which do not have tunable parameters. In fact, using my feature selection, I was able to get the following scores with the `test_classifier` module in `tester.py` for this classifier:
+But there are some algorithms, like `GaussianNB`, which do not have tunable parameters. In fact, using my feature selection, I was able to get the following scores with the `test_classifier` module in `tester.py` for the naive Bayes classifier right out of the box:
 
 Test | Value
 :---|---:
-Accuracy | 0.87007
-Precision | 0.51839
-Recall | 0.35950
-F1 | 0.42456
-F2 | 0.38298
+Accuracy | 0.87907
+Precision | 0.45588
+Recall | 0.29450
+F1 | 0.35784
+F2 | 0.31694
 
 However, I was able to get better performance by tuning the parameters of the `KNeighbors` classifier. Using `GridSearchCV`, I tested different parameter settings and improved most of my evaluation metric scores from default settings.
 ```python
@@ -177,13 +222,13 @@ Here are the results from `test_classifier`:
 
 Test | untuned | tuned
 :--- | ---: | ---:
-Accuracy | 0.89847 | 0.89427
-Precision | 0.77830 | 0.67279
-Recall | 0.33350 | 0.40300
-F1 | 0.46692 | 0.50407
-F2 | 0.37654 | 0.43814
+Accuracy | 0.89520 | 0.90160
+Precision | 0.72912 | 0.74259
+Recall | 0.34050 | 0.40100
+F1 | 0.46421 | 0.52078
+F2 | 0.38113 | 0.44163
 
-While the accuracy and precision scores dropped for the tuned classifier, the recall score and hence the F1 and F2 scores rose.
+All scores improved by tuning our algorithm.
 
 
 ## Question 5: Validating the Algorithm
@@ -192,10 +237,13 @@ While the accuracy and precision scores dropped for the tuned classifier, the re
 
 Validation is a necessary step to test a machine learning algorithm, where the data is split up into independent training and test sets. This is to correct for overfitting, where the model trains too closely on the input data so that accuracy drops precipitously when a new set of input data is introduced for the model to work on. By having an independent set on which to test, we will have a more accurate means to evaluate an algorithm's performance.
 
-I employed validation in the algorithm selection phase. For each of the algorithms tests, I used `ShuffleSplit` to create 10 randomly split training/test set pairs, trained and tested the classifier, and calculated the mean accuracy score from the test sets.
+I employed validation in the algorithm selection phase. For each of the algorithms tests, I used `StratifiedKFold` to create 10 randomly split training/test set pairs, trained and tested the classifier, and calculated the mean accuracy score from the test sets.
 
 ```python
-from sklearn.model_selection import train_test_split, cross_val_score, ShuffleSplit
+from sklearn.model_selection import train_test_split, cross_val_score
+from sklearn.model_selection import StratifiedKFold
+from time import time
+
 features_train, features_test, labels_train, labels_test = \
     train_test_split(features, labels, test_size=0.3, random_state=42)
 
@@ -204,19 +252,28 @@ clf_dict = {"Random Forest": RandomForestClassifier(n_estimators = 10,
                                 min_samples_leaf=1,
                                 criterion="entropy"),
             "Decision Tree": DecisionTreeClassifier(max_depth = 7,
-                                            max_features = 'sqrt',
-                                            min_samples_split = 4),
+                                max_features = 'sqrt',
+                                min_samples_split = 4),
             'Naive Bayes': GaussianNB(),
             'KNeighbors': KNeighborsClassifier()
-            }
+}
 
-for name, clf in clf_dict.items():
-    t0 = time()
-    clf.fit(features_train, labels_train)
-    print 'Fitting time: {} s'.format(round(time() - t0, 4))
-    cv = ShuffleSplit(n_splits=10, test_size=0.3, random_state=42)
-    scores = cross_val_score(clf, features, labels, cv = cv)
-    print "{} mean accuracy for 15 CVs: {}".format(name, round(np.mean(scores), 3))
+def validate(features, labels):
+
+    for name, clf in clf_dict.items():
+        t0 = time()
+        clf.fit(features_train, labels_train)
+        print 'Fitting time: {} s'.format(round(time() - t0, 4))
+        cv = StratifiedKFold(n_splits = 10, random_state = 42)
+        scores = cross_val_score(clf, features, labels, cv = cv)
+
+        acc_stmt = "{} mean accuracy for 10 CVs: {} +/- {}"
+        mean_score = round(np.mean(scores), 3)
+        std_score = round(np.std(scores), 3)
+        print acc_stmt.format(name, mean_score, std_score)
+        print '\n'
+
+validate(features, labels)
 ```
 
 Results are presented in the table for Question 3.
@@ -226,16 +283,16 @@ Results are presented in the table for Question 3.
 
 *Give at least 2 evaluation metrics and your average performance for each of them.  Explain an interpretation of your metrics that says something human-understandable about your algorithm’s performance.* [relevant rubric item: "usage of evaluation metrics"]
 
-As I showed in Question 4, my algorithm had a precision score of 0.67279 and a recall score of 0.40300. These are calculated from the cost matrix of true and false positive and negatives. A true positive in our case happens when our algorithm correctly predicts a POI from the features data, and a false positive happens when our algorithm incorrectly identifies a POI (`poi = True` when actually `poi = False`). Similarly, a true negative is a correctly identified non-POI and a false negative is an incorrectly identified non-POI (`poi = False` when actually `poi = True`). Here is the breakdown of total observations using `tester.py`.
+As I showed in Question 4, my algorithm had a precision score of 0.74259 and a recall score of 0.40100. These are calculated from the cost matrix of true and false positive and negatives. A true positive in our case happens when our algorithm correctly predicts a POI from the features data, and a false positive happens when our algorithm incorrectly identifies a POI (`poi = True` when actually `poi = False`). Similarly, a true negative is a correctly identified non-POI and a false negative is an incorrectly identified non-POI (`poi = False` when actually `poi = True`). Here is the breakdown of total observations using `tester.py`.
 
 ```
 Total predictions: 15000
-True positives:      806
-False positives:     392
-False negatives:    1194
-True negatives:    12608
+True positives:      802
+False positives:     278
+False negatives:    1198
+True negatives:    12722
 ```
 
-Precision is the number of true positives divided by the sum of true positives and false positives. It is the fraction of true positive predictions given all positive predictions. A precision score of 0.67 tells us that 67% of our POI predictions were correctly identified as POIs.
+Precision is the number of true positives divided by the sum of true positives and false positives. It is the fraction of true positive predictions given all positive predictions. A precision score of 0.74 tells us that 74% of our POI predictions were correctly identified as POIs.
 
 Recall is the number of true positives divided by the sum of true positives and false negatives. Our score of 0.40 says that 40% of our predictions (POI or non-POI) are correctly identified. Given how many more non-POIs vs. POIs there are (126 vs. 18 respectively), there are bound to be many false negatives. Recall tells us how complete our predictions are.

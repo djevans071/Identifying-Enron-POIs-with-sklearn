@@ -7,8 +7,6 @@ aS'bonus'
 p3
 aS'salary'
 p4
-aS'deferred_income'
-p5
 aS'feat_ratio'
-p6
+p5
 a.
